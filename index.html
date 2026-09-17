@@ -257,10 +257,61 @@ function call(fn,args,cb,quiet){
       [fn](args[0],args[1],args[2]);
     return;
   }
-  apiFetch(JSON.stringify({fn:fn,args:args.filter(function(a){return a!==undefined})}))
-    .then(function(r){showLd(false);if(!r.ok){if(!quiet)alert('エラーが発生しました：\n'+r.error);return}cb(r.result)})
-    .catch(function(e){showLd(false);if(!quiet)alert('通信エラーです：'+e.message+'\n電波状況を確認して、ページを開き直してください')});
+  apiCall(fn,args.filter(function(a){return a!==undefined}))
+    .then(function(result){showLd(false);cb(result)})
+    .catch(function(e){showLd(false);if(quiet)return;alert((e&&e.transport?'通信エラーです：':'エラーが発生しました：\n')+e.message+(e&&e.transport?'\n電波状況を確認して、ページを開き直してください':''))});
 }
+// 外部URL（GitHub Pages）からの呼び出し経路は2本：
+//  ①橋渡し iframe（Apps Script の画面を見えない形で読み込み、postMessage → google.script.run で実行。標準経路で安定・速い）
+//  ②JSON API（doPost を fetch。①が使えない時の予備。中継サーバーの不調で一時的に404/遅延になることがあるため再試行付き）
+var BRIDGE={win:null,origin:null,ready:false,pending:{},seq:0,used:0};
+function initBridge(){
+  if(USE_GAS)return;
+  window.addEventListener('message',function(ev){
+    var d=ev.data; if(!d||typeof d.type!=='string')return;
+    if(d.type==='fc-bridge-ready'){
+      if(!/\.googleusercontent\.com$|^https:\/\/script\.google\.com$/.test(ev.origin))return;
+      BRIDGE.win=ev.source;BRIDGE.origin=ev.origin;BRIDGE.ready=true;return;
+    }
+    if(d.type==='fc-api-res'){
+      var p=BRIDGE.pending[d.id]; if(!p)return;
+      delete BRIDGE.pending[d.id]; clearTimeout(p.timer);
+      if(d.ok)p.res(d.result); else p.rej(new Error(d.error||'error'));
+    }
+  });
+  var f=document.createElement('iframe');
+  f.src=API_URL+'?bridge=1';
+  f.style.cssText='position:absolute;width:0;height:0;border:0;visibility:hidden';
+  f.setAttribute('aria-hidden','true'); f.tabIndex=-1;
+  document.body.appendChild(f);
+}
+function waitBridge(ms){
+  return new Promise(function(res){
+    if(BRIDGE.ready)return res(true);
+    var t0=Date.now();
+    (function poll(){ if(BRIDGE.ready)return res(true); if(Date.now()-t0>ms)return res(false); setTimeout(poll,100); })();
+  });
+}
+function bridgeCall(fn,args){
+  return new Promise(function(res,rej){
+    var id=++BRIDGE.seq;
+    BRIDGE.pending[id]={res:res,rej:rej,timer:setTimeout(function(){delete BRIDGE.pending[id];var e=new Error('bridge timeout');e.transport=true;rej(e)},25000)};
+    try{BRIDGE.win.postMessage({type:'fc-api',id:id,fn:fn,args:args},BRIDGE.origin);BRIDGE.used++;}
+    catch(err){delete BRIDGE.pending[id];var e2=new Error('bridge error');e2.transport=true;rej(e2);}
+  });
+}
+function fetchUnwrap(body){
+  return apiFetch(body).then(function(r){ if(!r.ok)throw new Error(r.error||'error'); return r.result; },
+    function(e){ var t=new Error(e&&e.message?e.message:'network'); t.transport=true; throw t; });
+}
+function apiCall(fn,args){
+  var body=JSON.stringify({fn:fn,args:args});
+  return waitBridge(3000).then(function(ready){
+    if(!ready)return fetchUnwrap(body);
+    return bridgeCall(fn,args).catch(function(e){ if(e&&e.transport)return fetchUnwrap(body); throw e; });
+  });
+}
+initBridge();
 // Apps Script は公開直後などに一時的に 404 や遅延を返すことがあるため、20秒で打ち切り＋最大3回まで自動で再試行する
 function apiFetch(body,attempt){
   attempt=attempt||1;
