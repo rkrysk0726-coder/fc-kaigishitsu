@@ -114,6 +114,10 @@ h1{font-size:17px;margin:0;font-weight:700;color:var(--logo-gray);letter-spacing
 /* ローディング */
 .ld{position:fixed;inset:0;background:rgba(255,255,255,.55);display:flex;align-items:center;justify-content:center;z-index:100;font-size:14px;color:var(--brand-dark);font-weight:700}
 .ld[hidden]{display:none}
+.sync{font-size:11px;color:var(--muted);margin-left:auto;display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.sync::before{content:'';width:7px;height:7px;border-radius:50%;background:var(--brand);animation:syncpulse .9s infinite alternate}
+.sync[hidden]{display:none}
+@keyframes syncpulse{from{opacity:.25}to{opacity:1}}
 .spin{width:22px;height:22px;border:3px solid #dfeec4;border-top-color:var(--brand);border-radius:50%;animation:sp .8s linear infinite;margin-right:8px}
 @keyframes sp{to{transform:rotate(360deg)}}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);background:#1f2937;color:#fff;padding:10px 16px;border-radius:999px;font-size:13px;z-index:60;box-shadow:0 6px 20px rgba(0,0,0,.25);opacity:0;transition:opacity .2s;pointer-events:none}
@@ -152,6 +156,7 @@ h1{font-size:17px;margin:0;font-weight:700;color:var(--logo-gray);letter-spacing
   <button class="btn" onclick="goToday()">今日</button>
   <button class="btn" onclick="navMove(1)">▶</button>
   <span class="range" id="range"></span>
+  <span class="sync" id="sync" hidden>最新の予約を確認中…</span>
 </div>
 <div class="legend" id="legend"></div>
 <div class="days" id="days"></div>
@@ -236,7 +241,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 // ───────── 状態 ─────────
 // view: 'month'（月一覧）/ 'week'（7日×2室・PCのみ）/ 'day'（1日×2室）
 // anchor: いま注目している日付。month は表示中の月（1日）
-var S = { view:'month', anchor:null, month:null, weekStart:null, data:null, mdata:null, cur:[], today:null, editing:null, meta:null, lastLoad:0 };
+var S = { view:'month', anchor:null, month:null, weekStart:null, data:null, mdata:null, cur:[], today:null, editing:null, meta:null, lastLoad:0, seq:0, loading:0 };
 function isMobile(){return window.matchMedia('(max-width:759px)').matches}
 function colorOf(p){var ps=(S.meta&&S.meta.purposes)||[];for(var i=0;i<ps.length;i++)if(ps[i].name===p)return ps[i].color;return '#6b7280'}
 function roomMark(r){return r.indexOf('手前')>=0?'【前】':'【奥】'}
@@ -248,18 +253,23 @@ function isTemae(r){return r.indexOf('手前')>=0}
 var API_URL='https://script.google.com/macros/s/AKfycby-KfekUce8Jgj7rzBaaVcoTyqF8-onL1fv2qhFDD_KZ879PCbtrVgDTFy1EIZiR-Q/exec';
 var USE_GAS=(typeof google!=='undefined'&&google.script&&google.script.run)?true:false;
 // quiet=true は自動更新用（読み込み中の表示を出さず、失敗しても黙って次回に回す）
-function call(fn,args,cb,quiet){
-  if(!quiet)showLd(true);
+// quiet='soft' は前回の表を先に出している時用（読み込み中の表示は出さず、失敗は小さく知らせる）
+function call(fn,args,cb,quiet,onErr){
+  var soft=(quiet==='soft'), showed=!quiet;
+  if(showed)showLd(true);
+  function done(r){if(showed)showLd(false);cb(r)}
+  function fail(e){
+    if(showed)showLd(false);
+    if(onErr)onErr(e);
+    if(quiet===true)return;
+    if(soft){toast('最新の予約を取得できませんでした（前回の表示のままです）');return;}
+    alert((e&&e.transport?'通信エラーです：':'エラーが発生しました：\n')+(e&&e.message?e.message:e)+(e&&e.transport?'\n電波状況を確認して、ページを開き直してください':''));
+  }
   if(USE_GAS){
-    google.script.run
-      .withSuccessHandler(function(r){showLd(false);cb(r)})
-      .withFailureHandler(function(e){showLd(false);if(!quiet)alert('エラーが発生しました：\n'+(e&&e.message?e.message:e))})
-      [fn](args[0],args[1],args[2]);
+    google.script.run.withSuccessHandler(done).withFailureHandler(fail)[fn](args[0],args[1],args[2]);
     return;
   }
-  apiCall(fn,args.filter(function(a){return a!==undefined}))
-    .then(function(result){showLd(false);cb(result)})
-    .catch(function(e){showLd(false);if(quiet)return;alert((e&&e.transport?'通信エラーです：':'エラーが発生しました：\n')+e.message+(e&&e.transport?'\n電波状況を確認して、ページを開き直してください':''))});
+  apiCall(fn,args.filter(function(a){return a!==undefined})).then(done).catch(fail);
 }
 // 外部URL（GitHub Pages）からの呼び出し経路は2本：
 //  ①橋渡し iframe（Apps Script の画面を見えない形で読み込み、postMessage → google.script.run で実行。標準経路で安定・速い）
@@ -329,26 +339,52 @@ function apiFetch(body,attempt){
     throw e;
   });
 }
-function showLd(on){document.getElementById('ld').hidden=!on}
+var LD=0;
+function showLd(on){LD=Math.max(0,LD+(on?1:-1));document.getElementById('ld').hidden=(LD===0)}
 var toastT;
 function toast(msg){var t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(toastT);toastT=setTimeout(function(){t.classList.remove('show')},2200)}
-function takeMeta(r){S.meta={rooms:r.rooms,purposes:r.purposes,names:r.names||[],hourStart:r.hourStart,hourEnd:r.hourEnd};S.today=r.today}
+function takeMeta(r,fromCache){S.meta={rooms:r.rooms,purposes:r.purposes,names:r.names||[],hourStart:r.hourStart,hourEnd:r.hourEnd};S.today=fromCache?localToday():r.today}
+function localToday(){var d=new Date();return d.getFullYear()+'-'+p2(d.getMonth()+1)+'-'+p2(d.getDate())}
 
-/** 月の予約を読み込む（グリッドは前後月のはみ出し分も含む） */
+// ───────── 端末側の一時記憶 ─────────
+// 開いた瞬間に前回表示した表を出し、裏で最新を取りに行って差し替える（待ち時間の体感をなくす）。
+// 予約・変更・取消をした時は全部捨てる。古い表を見て予約しても重複はサーバーが拒否するので二重予約にはならない
+var LS='fc:v1:';
+function lsGet(k){try{var s=localStorage.getItem(LS+k);var o=s?JSON.parse(s):null;return (o&&o.r&&o.r.items&&Date.now()-(o.t||0)<7*864e5)?o.r:null}catch(e){return null}}
+function lsPut(k,r){try{localStorage.setItem(LS+k,JSON.stringify({t:Date.now(),r:r}))}catch(e){}}
+function lsClear(){try{for(var i=localStorage.length-1;i>=0;i--){var k=localStorage.key(i);if(k&&k.indexOf(LS)===0)localStorage.removeItem(k)}}catch(e){}}
+function setSync(on){document.getElementById('sync').hidden=!on}
+
+/** 月の予約を読み込む（グリッドは前後月のはみ出し分も含む）。前回の表が端末にあれば先に出す */
 function loadMonth(m,cb,quiet){
-  var g=monthGrid(m);
+  var g=monthGrid(m), key='month:'+m, seq=++S.seq, mode=quiet;
+  if(!quiet){
+    var c=lsGet(key);
+    if(c){ takeMeta(c,true); S.mdata=c; S.month=m; S.view='month'; render(); setSync(true); mode='soft'; }
+  }
+  S.loading++;
   call('getRange',[g.days[0],g.days[g.days.length-1]],function(r){
+    S.loading--; lsPut(key,r);
+    if(seq!==S.seq)return;                       // 待っている間に別の画面へ移っていたら捨てる
     takeMeta(r); S.mdata=r; S.month=m; S.view='month'; S.lastLoad=Date.now();
-    render(); if(cb)cb();
-  },quiet);
+    setSync(false); render(); if(cb)cb();
+  },mode,function(){ S.loading--; if(seq===S.seq)setSync(false); });
 }
-/** 週の予約を読み込む（週・日表示） */
+/** 週の予約を読み込む（週・日表示）。前回の表が端末にあれば先に出す */
 function loadWeek(ws,cb,quiet){
+  var key='week:'+ws, seq=++S.seq, mode=quiet;
+  if(!quiet){
+    var c=lsGet(key);
+    if(c){ takeMeta(c,true); S.data=c; S.weekStart=c.from; if(!S.anchor||S.anchor<c.from||S.anchor>c.to)S.anchor=c.from; render(); setSync(true); mode='soft'; }
+  }
+  S.loading++;
   call('getWeek',[ws],function(r){
+    S.loading--; lsPut(key,r);
+    if(seq!==S.seq)return;
     takeMeta(r); S.data=r; S.weekStart=r.from; S.lastLoad=Date.now();
     if(!S.anchor||S.anchor<r.from||S.anchor>r.to)S.anchor=r.from;
-    render(); if(cb)cb();
-  },quiet);
+    setSync(false); render(); if(cb)cb();
+  },mode,function(){ S.loading--; if(seq===S.seq)setSync(false); });
 }
 function refresh(quiet){ if(S.view==='month')loadMonth(S.month,null,quiet); else loadWeek(S.weekStart,null,quiet); }
 
@@ -356,7 +392,7 @@ function refresh(quiet){ if(S.view==='month')loadMonth(S.month,null,quiet); else
 // 画面に戻ってきた時（30秒以上経過）と、表示中は2分ごとに、他の人の予約を静かに取り込む。フォームを開いている間は触らない
 function modalOpen(){return !document.getElementById('ov').hidden||!document.getElementById('dv').hidden}
 function autoRefresh(minAge){
-  if(!S.meta||modalOpen()||document.visibilityState!=='visible')return;
+  if(!S.meta||S.loading>0||modalOpen()||document.visibilityState!=='visible')return;
   if(Date.now()-(S.lastLoad||0)<minAge)return;
   refresh(true);
 }
@@ -621,6 +657,7 @@ function submitForm(){
     }
     closeModal();
     toast(S.editing?'変更しました':'予約しました');
+    lsClear();
     // 予約した日を表示
     if(S.view==='month'){S.anchor=p.date;loadMonth(monthOf(p.date));}
     else{S.anchor=p.date;loadWeek(weekStartOf(p.date));}
@@ -659,6 +696,7 @@ function cancelIt(idx,mode){
   call('cancelBooking',[it.id,mode,it.date],function(r){
     closeDetail();
     toast(r&&r.already?'すでに取り消されていました':'取り消しました');
+    lsClear();
     refresh();
   });
 }
@@ -666,7 +704,7 @@ function cancelIt(idx,mode){
 // ───────── 初期化（月表示から開始） ─────────
 (function init(){
   if(USE_GAS)document.getElementById('moved').hidden=false;   // 旧アドレスでは新アドレスへの案内を出す
-  var t=dstr(Math.floor(Date.now()/864e5)); // まずは端末の日付で月を決め、サーバーの today で補正
+  var t=localToday(); // まずは端末の日付で月を決め、サーバーの today で補正
   S.anchor=t;
   loadMonth(monthOf(t),function(){
     if(S.today&&monthOf(S.today)!==S.month){S.anchor=S.today;loadMonth(monthOf(S.today));}
