@@ -648,7 +648,8 @@ function submitForm(){
   if(p.recur!=='none'&&p.recurEnd&&p.recurEnd<p.date)return setErr('くり返しの終了日は開始日以降にしてください');
   setErr('');
   var fn='createBooking';
-  if(S.editing){p.id=S.editing.id;fn='updateBooking'}
+  var editing=S.editing, isSeries=!!(editing&&editing.recur&&editing.recur!=='none');
+  if(editing){p.id=editing.id;fn='updateBooking'}
   call(fn,[p],function(r){
     if(!r.ok&&r.conflict){
       var c=r.conflict;
@@ -656,11 +657,14 @@ function submitForm(){
       return;
     }
     closeModal();
-    toast(S.editing?'変更しました':'予約しました');
+    toast(editing?(isSeries?'変更しました（くり返し全体に反映）':'変更しました'):'予約しました');
     lsClear();
-    // 予約した日を表示
-    if(S.view==='month'){S.anchor=p.date;loadMonth(monthOf(p.date));}
-    else{S.anchor=p.date;loadWeek(weekStartOf(p.date));}
+    // 表示する日：新規・単発の変更は予約した日へ。くり返し全体の変更は「起点日」に飛ばず、いま見ている月／日をそのまま最新化する
+    // （v18・2026-09-25：起点日へ飛ぶと同じ曜日の別の日が表示され、他の予定が消えたように見える誤解が起きたため）
+    if(isSeries){refresh();return;}
+    S.anchor=p.date;
+    if(S.view==='month')loadMonth(monthOf(p.date));
+    else loadWeek(weekStartOf(p.date));
   });
 }
 
