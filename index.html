@@ -78,7 +78,7 @@ h1{font-size:17px;margin:0;font-weight:700;color:var(--logo-gray);letter-spacing
 .mchip:hover{filter:brightness(1.1)}
 .mchip b{font-weight:700;opacity:.95;margin-right:1px;font-feature-settings:"palt";letter-spacing:-.5px}
 .mchip.temae{border-left:3px solid rgba(255,255,255,.7)}
-.help{margin:0 16px 14px;padding:9px 12px 9px 14px;background:#fff;border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.6}
+.help{margin:0 16px 12px;padding:9px 12px 9px 14px;background:#fff;border:1px solid var(--line);border-left:4px solid var(--brand);border-radius:10px;font-size:12px;color:var(--muted);line-height:1.6}
 .help::before{content:'使い方';display:block;font-size:11px;font-weight:700;color:var(--brand-dark);letter-spacing:.08em;margin-bottom:2px}
 .help:empty{display:none}
 /* 旧アドレス（Apps Script版）で開いた時だけ出す案内 */
@@ -138,15 +138,15 @@ h1{font-size:17px;margin:0;font-weight:700;color:var(--logo-gray);letter-spacing
 .lv-room{font-size:11px;padding:2px 7px;border-radius:999px;background:#f1f5f9;color:var(--muted);white-space:nowrap}
 .lv-arrow{color:#b0b7c3;font-size:20px;line-height:1}
 .lv-empty{color:var(--muted);font-size:13px;padding:8px 0}
-/* 上下の会社カラー帯（v20・2026-09-25 利倉さん要望：スマホで下が空欄で殺風景→上下にフリーケアグリーンの帯） */
-.band{height:8px;flex:none;background:linear-gradient(90deg,var(--brand-dark) 0%,var(--brand) 50%,#c9ea7d 100%)}
-.ft{margin-top:auto;flex:none;background:linear-gradient(135deg,#3f6a0b 0%,#5a8c12 60%,#6b9f17 100%);border-top:4px solid var(--brand);color:#fff;padding:14px 16px 18px}
+/* 上下の会社カラー帯（v20・2026-09-25 利倉さん要望：スマホで下が空欄で殺風景→上下にフリーケアグリーンの帯。v21：下の帯を明るい公式グリーン地＋濃緑文字に・上の帯を14pxに） */
+.band{height:14px;flex:none;background:linear-gradient(90deg,var(--brand-dark) 0%,var(--brand) 50%,#c9ea7d 100%)}
+.ft{margin-top:auto;flex:none;background:linear-gradient(135deg,#82b81c 0%,var(--brand) 55%,#a0d13d 100%);border-top:4px solid var(--brand-dark);color:var(--brand-ink);padding:14px 16px 14px}
 .ft-in{display:flex;align-items:center;gap:12px}
-.ft-logo{width:42px;height:42px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(0,0,0,.18)}
+.ft-logo{width:42px;height:42px;border-radius:12px;background:#fff;display:flex;align-items:center;justify-content:center;flex:none;box-shadow:0 2px 6px rgba(31,47,16,.22)}
 .ft-logo img{height:28px;width:auto}
 .ft-txt{min-width:0}
 .ft-txt b{display:block;font-size:14px;letter-spacing:.05em}
-.ft-txt span{display:block;font-size:11px;opacity:.88;margin-top:3px;line-height:1.4}
+.ft-txt span{display:block;font-size:11px;opacity:.85;margin-top:3px;line-height:1.4}
 /* スマホ */
 @media(max-width:759px){
   header{padding:10px 16px}
