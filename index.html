@@ -138,6 +138,14 @@ h1{font-size:17px;margin:0;font-weight:700;color:var(--logo-gray);letter-spacing
 .lv-room{font-size:11px;padding:2px 7px;border-radius:999px;background:#f1f5f9;color:var(--muted);white-space:nowrap}
 .lv-arrow{color:#b0b7c3;font-size:20px;line-height:1}
 .lv-empty{color:var(--muted);font-size:13px;padding:8px 0}
+/* くり返し予約の「どの回を変更しますか？」（v22） */
+.scope{display:flex;flex-direction:column;gap:8px;margin-top:4px}
+.scope-q{font-size:14px;font-weight:700;color:var(--text)}
+.scope-b{display:block;width:100%;text-align:left;padding:11px 12px;border:1px solid var(--line);border-left:5px solid var(--brand);border-radius:10px;background:#fff;cursor:pointer;font:inherit;color:var(--text)}
+.scope-b:hover{background:var(--hover)}
+.scope-b b{display:block;font-size:14px}
+.scope-b small{display:block;font-size:12px;color:var(--muted);margin-top:2px;line-height:1.5}
+.scope-b.all{border-left-color:#b0b7c3}
 /* 上下の会社カラー帯（v20・2026-09-25 利倉さん要望：スマホで下が空欄で殺風景→上下にフリーケアグリーンの帯。v21：下の帯を明るい公式グリーン地＋濃緑文字に・上の帯を14pxに） */
 .band{height:14px;flex:none;background:linear-gradient(90deg,var(--brand-dark) 0%,var(--brand) 50%,#c9ea7d 100%)}
 .ft{margin-top:auto;flex:none;background:linear-gradient(135deg,#82b81c 0%,var(--brand) 55%,#a0d13d 100%);border-top:4px solid var(--brand-dark);color:var(--brand-ink);padding:14px 16px 14px}
@@ -208,11 +216,13 @@ h1{font-size:17px;margin:0;font-weight:700;color:var(--logo-gray);letter-spacing
       <label>予約者（お名前）</label>
       <div class="chips" id="fNames"></div>
       <input type="text" id="fName" maxlength="30" placeholder="上にない方はこちらに入力" oninput="syncNameChips()" style="margin-top:8px">
-      <label>くり返し</label>
-      <select id="fRecur" onchange="onRecurChange()"></select>
-      <div id="recurEndRow" hidden>
-        <label>くり返しの終了日 <small>（任意・空欄なら期限なし）</small></label>
-        <input type="date" id="fRecurEnd">
+      <div id="recurRow">
+        <label>くり返し</label>
+        <select id="fRecur" onchange="onRecurChange()"></select>
+        <div id="recurEndRow" hidden>
+          <label>くり返しの終了日 <small>（任意・空欄なら期限なし）</small></label>
+          <input type="date" id="fRecurEnd">
+        </div>
       </div>
       <div class="err" id="fErr" hidden></div>
     </div>
@@ -277,7 +287,7 @@ function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){retur
 // ───────── 状態 ─────────
 // view: 'month'（月一覧）/ 'week'（7日×2室・PCのみ）/ 'day'（1日×2室）
 // anchor: いま注目している日付。month は表示中の月（1日）
-var S = { view:'month', anchor:null, month:null, weekStart:null, data:null, mdata:null, cur:[], today:null, editing:null, meta:null, lastLoad:0, seq:0, loading:0 };
+var S = { view:'month', anchor:null, month:null, weekStart:null, data:null, mdata:null, cur:[], today:null, editing:null, scope:'all', meta:null, lastLoad:0, seq:0, loading:0 };
 function isMobile(){return window.matchMedia('(max-width:759px)').matches}
 function colorOf(p){var ps=(S.meta&&S.meta.purposes)||[];for(var i=0;i<ps.length;i++)if(ps[i].name===p)return ps[i].color;return '#6b7280'}
 function roomMark(r){return r.indexOf('手前')>=0?'【前】':'【奥】'}
@@ -636,6 +646,7 @@ function openNew(date,ri,hour){
   document.getElementById('fDetail').value='';
   document.getElementById('fName').value='';
   syncNameChips();
+  document.getElementById('recurRow').hidden=false;
   document.getElementById('fRecur').value='none';
   onRecurChange();
   document.getElementById('fRecur').value='none';
@@ -644,13 +655,16 @@ function openNew(date,ri,hour){
   setErr('');
   document.getElementById('ov').hidden=false;
 }
-function openEdit(it){
-  S.editing=it;
+// scope（くり返し予約のみ・v22）: 'single'＝この回だけ／'following'＝この回以降／'all'＝すべての回
+function openEdit(it,scope){
+  var rec=it.recur!=='none';
+  scope=rec?(scope||'all'):'all';
+  S.editing=it; S.scope=scope;
   buildFormStatics();
-  document.getElementById('mtitle').textContent=it.recur!=='none'?'くり返し予約を変更（全体）':'予約を変更';
+  document.getElementById('mtitle').textContent=!rec?'予約を変更':scope==='single'?'この回だけ変更（'+md(it.date)+'）':scope==='following'?'この回以降を変更（'+md(it.date)+'〜）':'すべての回を変更';
   document.getElementById('fSubmit').textContent='保存する';
   pickRoom(it.room);
-  document.getElementById('fDate').value=it.recur!=='none'?it.ruleDate:it.date;
+  document.getElementById('fDate').value=(rec&&scope==='all')?it.ruleDate:it.date;
   document.getElementById('fStart').value=String(it.start);
   document.getElementById('fEnd').value=String(it.end);
   pickPurpose(it.purpose);
@@ -658,10 +672,15 @@ function openEdit(it){
   document.getElementById('fName').value=it.name||'';
   syncNameChips();
   onRecurChange();
-  document.getElementById('fRecur').value=it.recur||'none';
-  document.getElementById('recurEndRow').hidden=(it.recur==='none');
-  document.getElementById('fRecurEnd').value=it.recurEnd||'';
-  setErr(it.recur!=='none'?'<b>くり返し予約の全体</b>を変更します。日付は「くり返しの起点日」です。':'');
+  var one=(scope==='single');   // この回だけ＝変更後は1回だけの予約になるので、くり返し欄は出さない
+  document.getElementById('recurRow').hidden=one;
+  document.getElementById('fRecur').value=one?'none':(it.recur||'none');
+  document.getElementById('recurEndRow').hidden=one||(it.recur==='none');
+  document.getElementById('fRecurEnd').value=one?'':(it.recurEnd||'');
+  setErr(!rec?''
+    :scope==='single'?'<b>'+esc(ymd(it.date))+'</b> の回だけを変更します。他の回はそのままです。日付を変えると、この回だけ別の日に移ります。'
+    :scope==='following'?'<b>'+esc(ymd(it.date))+'</b> から先の回を変更します。それより前の回はそのままです。日付を変えると、その日を基準にくり返しの曜日・日にちも変わります。'
+    :'<b>過去の回も含めたくり返し全体</b>を変更します。日付は「くり返しの起点日」です。日付を変えると、すべての回が動きます。');
   document.getElementById('ov').hidden=false;
 }
 function closeModal(){document.getElementById('ov').hidden=true}
@@ -685,19 +704,32 @@ function submitForm(){
   setErr('');
   var fn='createBooking';
   var editing=S.editing, isSeries=!!(editing&&editing.recur&&editing.recur!=='none');
-  if(editing){p.id=editing.id;fn='updateBooking'}
+  var scope=isSeries?(S.scope||'all'):'all';
+  if(editing){
+    p.id=editing.id;p.scope=scope;p.occDate=editing.date;fn='updateBooking';
+    // 画面が見ていた変更前の内容（サーバーがシートと照合し、他の人が先に変えていたら上書きしない）
+    p.base={room:editing.room,date:editing.ruleDate||editing.date,start:editing.start,end:editing.end,purpose:editing.purpose,
+            detail:editing.detail||'',name:editing.name||'',recur:editing.recur||'none',recurEnd:editing.recurEnd||''};
+  }
+  if(scope==='single'){p.recur='none';p.recurEnd='';}
   call(fn,[p],function(r){
+    if(!r.ok&&r.stale){
+      closeModal();
+      alert('ほかの方が先にこの予約を変更していました。最新の内容を読み込み直してから、もう一度操作してください');
+      lsClear();refresh();
+      return;
+    }
     if(!r.ok&&r.conflict){
       var c=r.conflict;
       setErr('この時間は空いていません：<br><b>'+esc(ymd(c.date))+' '+ft(c.start)+'〜'+ft(c.end)+'</b> に「'+esc(c.purpose)+'（'+esc(c.name)+'）」が入っています。'+(p.recur!=='none'?'<br>くり返しのいずれかの回が重なっています。時間・部屋・終了日を見直してください。':''));
       return;
     }
     closeModal();
-    toast(editing?(isSeries?'変更しました（くり返し全体に反映）':'変更しました'):'予約しました');
+    toast(!editing?'予約しました':!isSeries?'変更しました':scope==='single'?'この回だけ変更しました':scope==='following'?'この回以降を変更しました':'変更しました（すべての回に反映）');
     lsClear();
-    // 表示する日：新規・単発の変更は予約した日へ。くり返し全体の変更は「起点日」に飛ばず、いま見ている月／日をそのまま最新化する
+    // 表示する日：新規・単発の変更・「この回だけ変更」は予約した日へ。くり返しの変更（この回以降／すべて）は「起点日」に飛ばず、いま見ている月／日をそのまま最新化する
     // （v18・2026-09-25：起点日へ飛ぶと同じ曜日の別の日が表示され、他の予定が消えたように見える誤解が起きたため）
-    if(isSeries){refresh();return;}
+    if(isSeries&&scope!=='single'){refresh();return;}
     S.anchor=p.date;
     if(S.view==='month')loadMonth(monthOf(p.date));
     else loadWeek(weekStartOf(p.date));
@@ -707,21 +739,22 @@ function submitForm(){
 // ───────── その日の予定一覧（v19・2026-09-25）─────────
 // 月画面で予定を押した時：その日に2件以上あれば、まず時間順の一覧を出す（上下スクロールで全体を把握）。
 // 一覧の予定を押すと従来の詳細（変更・取消）へ。1件だけの日は今までどおり直接詳細を開く
-var LV={date:null,focusKey:null};
+var LV={date:null,focusKey:null,items:[]};   // items＝一覧に並べた予約そのもの（v22。押した時に S.cur から id＋日付で探し直す）
 function sameDayIdx(date){var a=[];S.cur.forEach(function(it,idx){if(it.date===date)a.push(idx)});a.sort(function(x,y){var p=S.cur[x],q=S.cur[y];return p.start-q.start||(p.room<q.room?-1:p.room>q.room?1:0)});return a}
 function chipTap(date,idx){ if(sameDayIdx(date).length>1)openDayList(date,idx); else openDetail(idx); }
 function openDayList(date,focusIdx){
   var f=(focusIdx!=null)?S.cur[focusIdx]:null;
   LV.date=date; LV.focusKey=f?f.id+'@'+f.date:null;
   var rows=sameDayIdx(date);
+  LV.items=rows.map(function(idx){return S.cur[idx]});
   document.getElementById('ltitle').textContent=ymd(date)+' の予定　'+rows.length+'件';
   var h='';
-  rows.forEach(function(idx){
+  rows.forEach(function(idx,k){
     var it=S.cur[idx], c=colorOf(it.purpose);
     var label=it.purpose==='その他'&&it.detail?it.detail:it.purpose;
     var sub=esc(it.name)+(it.purpose==='その他'&&it.detail?'　'+esc(it.purpose):(it.detail?'　'+esc(it.detail):''))+(it.recur!=='none'?'　↻ くり返し':'');
     var isF=((it.id+'@'+it.date)===LV.focusKey);
-    h+='<button type="button" class="lv-item'+(isF?' focus':'')+'" style="border-left-color:'+c+'" onclick="openDetail('+idx+',true)">'
+    h+='<button type="button" class="lv-item'+(isF?' focus':'')+'" style="border-left-color:'+c+'" onclick="openFromList('+k+')">'
       +'<span class="lv-time">'+ft(it.start)+'〜'+ft(it.end)+'</span>'
       +'<span class="lv-main"><b>'+esc(label)+'</b><span>'+sub+'</span></span>'
       +'<span class="lv-room">'+esc(it.room.replace('会議室',''))+'</span>'
@@ -732,6 +765,11 @@ function openDayList(date,focusIdx){
   document.getElementById('lv').hidden=false;
 }
 function closeList(){document.getElementById('lv').hidden=true}
+function openFromList(k){
+  var it=LV.items[k], i=it?idxOf(it):-1;
+  if(i<0){closeList();toast('予約が更新されていました。もう一度選んでください');refresh();return;}
+  openDetail(i,true);
+}
 function listToDay(){var d=LV.date;closeList();if(d)gotoDay(d)}
 
 // ───────── 詳細・取消 ─────────
@@ -746,21 +784,44 @@ function openDetail(idx,fromList){
     +'<div><b>予約者</b>'+esc(it.name)+'</div>'
     +'<div><b>くり返し</b>'+esc(it.recur!=='none'?(it.recurLabel+(it.recurEnd?'（'+it.recurEnd+' まで）':'')):'なし')+'</div>';
   document.getElementById('dBody').innerHTML=b;
-  document.getElementById('dNote').textContent=it.recur!=='none'?'くり返し予約です。「この回だけ取消」はこの日の分だけ、「この回以降を取消」はこの日から先のすべてを取り消します。':'';
+  document.getElementById('dNote').textContent=it.recur!=='none'?'くり返し予約です。「変更」は この回だけ／この回以降／すべての回 から選べます。「この回だけ取消」はこの日の分だけ、「この回以降を取消」はこの日から先のすべてを取り消します。':'';
+  // 開いた予約そのものを覚える（v22。自動更新で S.cur の並びが変わっても別の予約を操作しないように、ボタンは DV.it を使う）
+  DV.it=it; DV.fromList=!!fromList;
   var bt=(fromList&&LV.date?'<button class="btn" onclick="closeDetail();openDayList(LV.date,'+idx+')">← 一覧へ</button>':'<button class="btn" onclick="closeDetail()">閉じる</button>')+'<span class="sp"></span>';
-  bt+='<button class="btn" onclick="closeDetail();openEdit(S.cur['+idx+'])">変更</button>';
+  // くり返し予約は先に「どの回を変更するか」を選ぶ（v22）。単発はそのまま変更フォームへ
+  bt+=it.recur!=='none'?'<button class="btn" onclick="askScope()">変更</button>':'<button class="btn" onclick="closeDetail();openEdit(DV.it)">変更</button>';
   if(it.recur!=='none'){
-    bt+='<button class="btn warn" onclick="cancelIt('+idx+',\'single\')">この回だけ取消</button>';
-    bt+='<button class="btn danger" onclick="cancelIt('+idx+',\'series\')">この回以降を取消</button>';
+    bt+='<button class="btn warn" onclick="cancelIt(\'single\')">この回だけ取消</button>';
+    bt+='<button class="btn danger" onclick="cancelIt(\'series\')">この回以降を取消</button>';
   }else{
-    bt+='<button class="btn danger" onclick="cancelIt('+idx+',\'single\')">取消</button>';
+    bt+='<button class="btn danger" onclick="cancelIt(\'single\')">取消</button>';
   }
   document.getElementById('dBtns').innerHTML=bt;
   document.getElementById('dv').hidden=false;
 }
 function closeDetail(){document.getElementById('dv').hidden=true}
-function cancelIt(idx,mode){
-  var it=S.cur[idx]; if(!it)return;
+// くり返し予約の「どの回を変更しますか？」（v22・2026-11-05 利倉さん決定：Googleカレンダーと同じ3択）
+// 詳細画面の中身を3つの選択肢に差し替える。「← 戻る」で元の詳細に戻る
+var DV={it:null,fromList:false};
+function idxOf(it){for(var i=0;i<S.cur.length;i++)if(S.cur[i].id===it.id&&S.cur[i].date===it.date)return i;return -1}
+function askScope(){
+  var it=DV.it; if(!it)return;
+  var d=esc(ymd(it.date));
+  function opt(scope,cls,title,sub){return '<button type="button" class="scope-b'+cls+'" onclick="closeDetail();openEdit(DV.it,\''+scope+'\')"><b>'+title+'</b><small>'+sub+'</small></button>'}
+  document.getElementById('dNote').innerHTML='<div class="scope"><div class="scope-q">どの回を変更しますか？</div>'
+    +opt('single','','この回だけ',d+' の分だけ変更します。他の回はそのままです（例：今月だけ別の日・時間にずらす）')
+    +opt('following','','この回以降',d+' から先の回をまとめて変更します。それより前の回はそのままです')
+    +opt('all',' all','すべての回','過去の回も含めて、くり返し全体を変更します')
+    +'</div>';
+  document.getElementById('dBtns').innerHTML='<button class="btn" onclick="backToDetail()">← 戻る</button>';
+}
+function backToDetail(){
+  var i=DV.it?idxOf(DV.it):-1;
+  if(i<0){closeDetail();toast('予約が更新されていました。もう一度選んでください');refresh();return;}
+  openDetail(i,DV.fromList);
+}
+function cancelIt(mode){
+  var it=DV.it; if(!it)return;
   var msg=mode==='series'&&it.recur!=='none'
     ?ymd(it.date)+' 以降の「'+it.purpose+'（'+it.name+'）」のくり返しをすべて取り消します。よろしいですか？'
     :ymd(it.date)+' '+ft(it.start)+'〜'+ft(it.end)+' の「'+it.purpose+'（'+it.name+'）」を取り消します。よろしいですか？';
@@ -770,7 +831,7 @@ function cancelIt(idx,mode){
     toast(r&&r.already?'すでに取り消されていました':'取り消しました');
     lsClear();
     refresh();
-  });
+  },false,function(){closeDetail();lsClear();refresh();});   // エラー（他の人が先に変更した等）の時も最新を読み込み直す
 }
 
 // ───────── 初期化（月表示から開始） ─────────
